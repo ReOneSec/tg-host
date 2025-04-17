@@ -147,12 +147,22 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         if data == 'upload':
-            await query.message.reply_text("📤 Please send an HTML/ZIP file (max 5MB)")
+            await query.edit_message_text(
+                "📤 Please send an HTML/ZIP file (max 5MB)",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔙 Back", callback_data='start')]
+                ])
+            )
 
         elif data == 'files':
             files = db.child("users").child(user_id).get().val() or []
             if not files:
-                await query.edit_message_text("📁 Your storage is empty")
+                await query.edit_message_text(
+                    "📁 Your storage is empty",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("🔙 Back", callback_data='start')]
+                    ])
+                )
                 return
             file_list = "\n".join(
                 [f"• [{f['name']}]({f['url']}) ({f['size']//1024}KB)" for f in files]
@@ -160,13 +170,21 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(
                 f"📂 *Your Files ({len(files)}/{USER_STORAGE_LIMIT}):*\n{file_list}",
                 parse_mode='Markdown',
-                disable_web_page_preview=True
+                disable_web_page_preview=True,
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔙 Back", callback_data='start')]
+                ])
             )
 
         elif data == 'delete':
             files = db.child("users").child(user_id).get().val() or []
             if not files:
-                await query.edit_message_text("❌ No files to delete")
+                await query.edit_message_text(
+                    "❌ No files to delete",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("🔙 Back", callback_data='start')]
+                    ])
+                )
                 return
             buttons = [
                 [InlineKeyboardButton(f"🗑 {f['name']}", callback_data=f"delete_{i}")]
@@ -197,7 +215,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "3. Manage files via menu\n\n"
                 "⚠️ ZIP files must contain `index.html`"
             )
-            await query.edit_message_text(help_text, parse_mode='Markdown')
+            await query.edit_message_text(
+                help_text,
+                parse_mode='Markdown',
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔙 Back", callback_data='start')]
+                ])
+            )
 
         elif data == 'start':
             await start(update, context)
