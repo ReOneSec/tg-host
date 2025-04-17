@@ -1,4 +1,21 @@
-import os import logging import tempfile from datetime import datetime from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup from telegram.ext import ( ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters ) import pyrebase from collections import defaultdict from dotenv import load_dotenv import zipfile import re
+import os
+import logging
+import tempfile
+from datetime import datetime
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+    filters
+)
+import pyrebase
+from collections import defaultdict
+from dotenv import load_dotenv
+import zipfile
+import re
 
 Load environment variables
 
