@@ -89,9 +89,10 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
-        # Download file
+        # PROPER FILE DOWNLOAD
         file_path = tempfile.mktemp()
-        await file.get_file().download_to_drive(file_path)
+        telegram_file = await file.get_file()  # First await
+        await telegram_file.download_to_drive(file_path)  # Second await
         
         # Process ZIP files
         if file.file_name.lower().endswith('.zip'):
