@@ -29,14 +29,14 @@ logger = logging.getLogger(__name__)
 
 # Firebase configuration from environment
 firebase_config = {
-    "apiKey": os.getenv("FIREBASE_API_KEY"),
-    "authDomain": os.getenv("FIREBASE_AUTH_DOMAIN"),
-    "projectId": os.getenv("FIREBASE_PROJECT_ID"),
-    "storageBucket": os.getenv("FIREBASE_STORAGE_BUCKET"),
-    "messagingSenderId": os.getenv("FIREBASE_SENDER_ID"),
-    "appId": os.getenv("FIREBASE_APP_ID"),
-    "measurementId": os.getenv("FIREBASE_MEASUREMENT_ID"),
-    "databaseURL": os.getenv("FIREBASE_DB_URL")
+    "apiKey": "AIzaSyDXvKYeELqzLobS0s7N2NaB3hyRkMkm0c0",
+    "authDomain": "pw-pdfs.firebaseapp.com",
+    "projectId": "pw-pdfs",
+    "storageBucket": "pw-pdfs.appspot.com",
+    "messagingSenderId": "928467962557",
+    "appId": "1:928467962557:web:f54c246d1c79d9e8e605d4",
+    "measurementId": None,  # Optional; add if available
+    "databaseURL": "https://pw-pdfs-default-rtdb.firebaseio.com"
 }
 
 # Initialize Firebase
@@ -214,7 +214,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 if __name__ == '__main__':
     # Initialize bot
     app = ApplicationBuilder() \
-        .token(os.getenv("TELEGRAM_BOT_TOKEN")) \
+        .token(os.getenv("7293557377:AAHwOcYb6oo0TwmjV8ZJEw658AIXfrvLFJk")) \
         .build()
 
     # Register handlers
