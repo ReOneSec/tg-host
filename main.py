@@ -143,14 +143,15 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Improved button handler with better state management"""
-    query = await update.callback_query
+    query = update.callback_query  # CORRECTED LINE
     await query.answer()
     data = query.data
     user_id = str(query.from_user.id)
 
     try:
         if data == 'upload':
-            await query.edit_message_text("📤 Please send an HTML/ZIP file (max 5MB)")
+            # Use reply_text instead of edit_message_text for new messages
+            await query.message.reply_text("📤 Please send an HTML/ZIP file (max 5MB)")
         
         elif data == 'files':
             files = user_files.get(user_id, [])
@@ -167,6 +168,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode='Markdown',
                 disable_web_page_preview=True
             )
+
+        # ... rest of the function remains the same ...
         
         elif data == 'delete':
             files = user_files.get(user_id, [])
