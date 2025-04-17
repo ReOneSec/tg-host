@@ -3,7 +3,7 @@
 
 A feature-rich Telegram bot for hosting static HTML content with Firebase integration. Users can upload, manage, and share HTML/ZIP files with instant public URLs, while admins can broadcast messages to all users.
 
-![Bot Demo](https://via.placeholder.com/800x400.png?text=Bot+Interface+Demo)
+![Bot Demo](https://i.ibb.co/Mkbz6zTm/Screenshot-20250418-045531-Telegram.png)
 
 ## Features
 
