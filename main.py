@@ -214,7 +214,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 if __name__ == '__main__':
     # Initialize bot
     app = ApplicationBuilder() \
-        .token("7293557377:AAG341C0HJMfLfinQt4U7Ag2RfH3U64ZSr4"))  \
+        .token("7293557377:AAG341C0HJMfLfinQt4U7Ag2RfH3U64ZSr4")  \
         .build()
 
     # Register handlers
