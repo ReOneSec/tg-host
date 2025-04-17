@@ -59,7 +59,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("❌ Delete File", callback_data='delete')],
         [
             InlineKeyboardButton("ℹ️ Help", callback_data='help'),
-            InlineKeyboardButton("📬 Contact", url=os.getenv("DEVELOPER_URL"))
+            InlineKeyboardButton("📬 Contact", url=("https://t.me/ViperROX")
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
