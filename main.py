@@ -52,7 +52,6 @@ MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 ALLOWED_EXTENSIONS = ('.html', '.zip')
 USER_STORAGE_LIMIT = 10
 
-# Async Functions
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
@@ -65,12 +64,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(
-        "👋 Welcome to the HTML Hosting Bot!\n\n"
-        "Host static websites with instant public links. Supported formats: HTML/ZIP",
-        reply_markup=reply_markup,
-        parse_mode='Markdown'
-    )
+    if update.message:
+        await update.message.reply_text(
+            "👋 Welcome to the HTML Hosting Bot!\n\n"
+            "Host static websites with instant public links. Supported formats: HTML/ZIP",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+    elif update.callback_query:
+        await update.callback_query.edit_message_text(
+            "👋 Welcome to the HTML Hosting Bot!\n\n"
+            "Host static websites with instant public links. Supported formats: HTML/ZIP",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+
 
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
@@ -139,6 +147,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if 'extract_path' in locals() and os.path.exists(extract_path):
             os.rmdir(extract_path)
 
+
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -147,44 +156,32 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         if data == 'upload':
+            keyboard = [[InlineKeyboardButton("🔙 Back", callback_data='start')]]
             await query.edit_message_text(
                 "📤 Please send an HTML/ZIP file (max 5MB)",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔙 Back", callback_data='start')]
-                ])
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
 
         elif data == 'files':
             files = db.child("users").child(user_id).get().val() or []
             if not files:
-                await query.edit_message_text(
-                    "📁 Your storage is empty",
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("🔙 Back", callback_data='start')]
-                    ])
-                )
+                await query.edit_message_text("📁 Your storage is empty")
                 return
             file_list = "\n".join(
                 [f"• [{f['name']}]({f['url']}) ({f['size']//1024}KB)" for f in files]
             )
+            keyboard = [[InlineKeyboardButton("🔙 Back", callback_data='start')]]
             await query.edit_message_text(
                 f"📂 *Your Files ({len(files)}/{USER_STORAGE_LIMIT}):*\n{file_list}",
+                reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode='Markdown',
-                disable_web_page_preview=True,
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔙 Back", callback_data='start')]
-                ])
+                disable_web_page_preview=True
             )
 
         elif data == 'delete':
             files = db.child("users").child(user_id).get().val() or []
             if not files:
-                await query.edit_message_text(
-                    "❌ No files to delete",
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("🔙 Back", callback_data='start')]
-                    ])
-                )
+                await query.edit_message_text("❌ No files to delete")
                 return
             buttons = [
                 [InlineKeyboardButton(f"🗑 {f['name']}", callback_data=f"delete_{i}")]
@@ -203,7 +200,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 file_info = files.pop(index)
                 storage.delete(file_info['path'], None)
                 db.child("users").child(user_id).set(files)
-                await query.edit_message_text(f"✅ `{file_info['name']}` deleted")
+                await query.edit_message_text(f"✅ `{file_info['name']}` deleted", parse_mode='Markdown')
             else:
                 await query.edit_message_text("⚠️ Invalid selection")
 
@@ -215,13 +212,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "3. Manage files via menu\n\n"
                 "⚠️ ZIP files must contain `index.html`"
             )
-            await query.edit_message_text(
-                help_text,
-                parse_mode='Markdown',
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔙 Back", callback_data='start')]
-                ])
-            )
+            keyboard = [[InlineKeyboardButton("🔙 Back", callback_data='start')]]
+            await query.edit_message_text(help_text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
         elif data == 'start':
             await start(update, context)
@@ -250,16 +242,16 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             await context.bot.send_message(chat_id=int(uid), text=message)
             success_count += 1
-            await asyncio.sleep(0.1)  # Sleep to respect rate limits
+            await asyncio.sleep(0.1)
         except Exception as e:
             logging.warning(f"Failed to send message to {uid}: {e}")
             failure_count += 1
 
     await update.message.reply_text(f"✅ Broadcast sent to {success_count} users. ❌ Failed to send to {failure_count} users.")
-# Main entry point
+
+
 if __name__ == '__main__':
     app = ApplicationBuilder().token(os.getenv("BOT_TOKEN")).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("broadcast", broadcast))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
