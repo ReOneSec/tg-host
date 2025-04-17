@@ -24,20 +24,20 @@ In-memory storage (consider moving to Firestore for production)
 
 user_files = defaultdict(list)
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE): keyboard = [ [InlineKeyboardButton("📤 Upload File", callback_data='upload')], [InlineKeyboardButton("📁 My Files", callback_data='files')], [InlineKeyboardButton("❌ Delete File", callback_data='delete')], [ InlineKeyboardButton("ℹ️ Help", callback_data='help'), InlineKeyboardButton("📬 Contact", url="https://t.me/ViperROX") ] ] reply_markup = InlineKeyboardMarkup(keyboard) await update.message.reply_text( "👋 Welcome to the HTML Hosting Bot!\n\n" "Host static websites with instant public links. Supported formats: HTML/ZIP", reply_markup=reply_markup, parse_mode='Markdown' )
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE): keyboard = [ [InlineKeyboardButton("\ud83d\udce4 Upload File", callback_data='upload')], [InlineKeyboardButton("\ud83d\udcc1 My Files", callback_data='files')], [InlineKeyboardButton("\u274c Delete File", callback_data='delete')], [ InlineKeyboardButton("\u2139\ufe0f Help", callback_data='help'), InlineKeyboardButton("\ud83d\udcec Contact", url="https://t.me/ViperROX") ] ] reply_markup = InlineKeyboardMarkup(keyboard) await update.message.reply_text( "\ud83d\udc4b Welcome to the HTML Hosting Bot!\n\n" "Host static websites with instant public links. Supported formats: HTML/ZIP", reply_markup=reply_markup, parse_mode='Markdown' )
 
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE): user_id = str(update.message.from_user.id) file = update.message.document
 
 if not file.file_name.lower().endswith(ALLOWED_EXTENSIONS):
-    await update.message.reply_text("⚠️ Only .html or .zip files are supported.")
+    await update.message.reply_text("\u26a0\ufe0f Only .html or .zip files are supported.")
     return
 
 if file.file_size > MAX_FILE_SIZE:
-    await update.message.reply_text(f"⚠️ File size exceeds {MAX_FILE_SIZE//1024//1024}MB limit.")
+    await update.message.reply_text(f"\u26a0\ufe0f File size exceeds {MAX_FILE_SIZE//1024//1024}MB limit.")
     return
 
 if len(user_files[user_id]) >= USER_STORAGE_LIMIT:
-    await update.message.reply_text("⚠️ Storage limit reached. Delete some files first.")
+    await update.message.reply_text("\u26a0\ufe0f Storage limit reached. Delete some files first.")
     return
 
 try:
@@ -71,16 +71,16 @@ try:
     })
 
     await update.message.reply_text(
-        f"✅ *Upload Successful!*\n\n"
-        f"📄 File: `{file_name}`\n"
-        f"🔗 [View File]({url})",
+        f"\u2705 *Upload Successful!*\n\n"
+        f"\ud83d\udcc4 File: `{file_name}`\n"
+        f"\ud83d\udd17 [View File]({url})",
         parse_mode='Markdown',
         disable_web_page_preview=False
     )
 
 except Exception as e:
     logger.error(f"Upload failed for {user_id}: {str(e)}")
-    await update.message.reply_text(f"❌ Upload failed: {str(e)}")
+    await update.message.reply_text(f"\u274c Upload failed: {str(e)}")
 finally:
     if 'file_path' in locals() and os.path.exists(file_path):
         os.remove(file_path)
@@ -91,18 +91,20 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE): qu
 
 try:
     if data == 'upload':
-        await query.message.reply_text("📤 Please send an HTML/ZIP file (max 5MB)")
+        await query.message.reply_text("\ud83d\udce4 Please send an HTML/ZIP file (max 5MB)")
 
     elif data == 'files':
         files = user_files.get(user_id, [])
         if not files:
-            await query.edit_message_text("📁 Your storage is empty")
+            await query.edit_message_text("\ud83d\udcc1 Your storage is empty")
             return
-        file_list = "\n".join([
-            f"• [{f['name']}]({f['url']}) ({f['size']//1024}KB)" for f in files
-        ])
+
+        file_list = "\n".join(
+            [f"\u2022 [{f['name']}]({f['url']}) ({f['size']//1024}KB)" 
+             for f in files]
+        )
         await query.edit_message_text(
-            f"📂 *Your Files ({len(files)}/{USER_STORAGE_LIMIT}):*\n{file_list}",
+            f"\ud83d\udcc2 *Your Files ({len(files)}/{USER_STORAGE_LIMIT}):*\n{file_list}",
             parse_mode='Markdown',
             disable_web_page_preview=True
         )
@@ -110,11 +112,14 @@ try:
     elif data == 'delete':
         files = user_files.get(user_id, [])
         if not files:
-            await query.edit_message_text("❌ No files to delete")
+            await query.edit_message_text("\u274c No files to delete")
             return
-        buttons = [[InlineKeyboardButton(f"🗑 {f['name']}", callback_data=f"delete_{i}")]
-                   for i, f in enumerate(files)]
-        buttons.append([InlineKeyboardButton("🔙 Back", callback_data='start')])
+
+        buttons = [
+            [InlineKeyboardButton(f"\ud83d\uddd1 {f['name']}", callback_data=f"delete_{i}")]
+            for i, f in enumerate(files)
+        ]
+        buttons.append([InlineKeyboardButton("\ud83d\udd19 Back", callback_data='start')])
         await query.edit_message_text(
             "Select file to delete:",
             reply_markup=InlineKeyboardMarkup(buttons)
@@ -126,17 +131,17 @@ try:
         if 0 <= index < len(files):
             file_info = files.pop(index)
             storage.delete(file_info['path'], None)
-            await query.edit_message_text(f"✅ `{file_info['name']}` deleted")
+            await query.edit_message_text(f"\u2705 `{file_info['name']}` deleted")
         else:
-            await query.edit_message_text("⚠️ Invalid selection")
+            await query.edit_message_text("\u26a0\ufe0f Invalid selection")
 
     elif data == 'help':
         help_text = (
-            "ℹ️ *Bot Guide*\n\n"
+            "\u2139\ufe0f *Bot Guide*\n\n"
             "1. Upload HTML/ZIP files\n"
             "2. Share generated links\n"
             "3. Manage files via menu\n\n"
-            "⚠️ ZIP files must contain index.html"
+            "\u26a0\ufe0f ZIP files must contain index.html"
         )
         await query.edit_message_text(help_text, parse_mode='Markdown')
 
@@ -145,7 +150,7 @@ try:
 
 except Exception as e:
     logger.error(f"Button handler error: {str(e)}")
-    await query.edit_message_text("⚠️ An error occurred. Please try again.")
+    await query.edit_message_text("\u26a0\ufe0f An error occurred. Please try again.")
 
 if name == 'main': app = ApplicationBuilder().token(os.getenv("BOT_TOKEN")).build()
 
