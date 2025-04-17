@@ -28,8 +28,8 @@ A feature-rich Telegram bot for hosting static HTML content with Firebase integr
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/telegram-html-bot.git
-cd telegram-html-bot
+git clone https://github.com/ReOneSec/tg-host.git
+cd tg-host
 ```
 
 2. Install dependencies:
@@ -124,7 +124,3 @@ service firebase.storage {
 Distributed under the MIT License. See `LICENSE` for more information.
 
 ---
-
-**Note:** Replace placeholder URLs and environment variables with your actual project credentials before deployment.
-```
-
