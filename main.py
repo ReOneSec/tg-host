@@ -1,6 +1,7 @@
 # main.py
 
 import os
+import asyncio
 import logging
 import tempfile
 import zipfile
@@ -205,6 +206,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Button handler error: {str(e)}")
         await query.edit_message_text("⚠️ An error occurred. Please try again.")
 
+
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     admin_id = int(os.getenv("ADMIN_ID"))
     if update.message.from_user.id != admin_id:
@@ -217,16 +219,19 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     all_users = db.child("users").get().val() or {}
-    count = 0
+    success_count = 0
+    failure_count = 0
+
     for uid in all_users:
         try:
             await context.bot.send_message(chat_id=int(uid), text=message)
-            count += 1
+            success_count += 1
+            await asyncio.sleep(0.1)  # Sleep to respect rate limits
         except Exception as e:
-            logger.warning(f"Failed to send message to {uid}: {e}")
+            logging.warning(f"Failed to send message to {uid}: {e}")
+            failure_count += 1
 
-    await update.message.reply_text(f"✅ Broadcast sent to {count} users.")
-
+    await update.message.reply_text(f"✅ Broadcast sent to {success_count} users. ❌ Failed to send to {failure_count} users.")
 # Main entry point
 if __name__ == '__main__':
     app = ApplicationBuilder().token(os.getenv("BOT_TOKEN")).build()
