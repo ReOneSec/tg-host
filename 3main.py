@@ -125,7 +125,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     referral_link = f"https://t.me/{BOT_USERNAME}?start={user_id}"
 
-    await update.message.reply_text(
+    message = update.message or update.callback_query.message
+await message.reply_text(
         f"👋 Welcome to the HTML Hosting Bot!\n\n"
         f"Host static websites with public links.\n"
         f"Refer friends to earn +3 extra file uploads!\n\n"
