@@ -1,3 +1,4 @@
 python-telegram-bot
 pyrebase4
 python-dotenv
+Flask==1.1.2
