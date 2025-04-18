@@ -1,4 +1,16 @@
-# main.py
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+def run_fake_server():
+    class HealthCheckHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b'OK')
+    server = HTTPServer(('0.0.0.0', 8080), HealthCheckHandler)
+    server.serve_forever()
+
+threading.Thread(target=run_fake_server, daemon=True).start()
 
 import os
 import asyncio
