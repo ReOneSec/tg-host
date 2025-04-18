@@ -144,11 +144,12 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db.child("users").child(user_id).set(user_data)
 
         await update.message.reply_text(
-            f"✅ *Upload Successful!*\n\n"
-            f"📄 File: `{file_name}`\n"
-            f"🔗 [View File]({short_url})",
-            parse_mode='Markdown',
-            disable_web_page_preview=False
+    f"✅ *Upload Successful!*\n\n"
+    f"📄 File: `{file_name}`\n"
+    f"🔗 [View File]({short_url})\n"
+    f"`{short_url}`",
+    parse_mode='Markdown',
+    disable_web_page_preview=False
         )
 
     except Exception as e:
