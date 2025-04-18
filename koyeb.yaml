@@ -1,0 +1,7 @@
+name: telegram-bot
+routes:
+  - type: http
+    port: 8080
+    path: /
+    healthcheck:
+      enabled: false
