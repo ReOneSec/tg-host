@@ -17,7 +17,6 @@ import asyncio
 import logging
 import tempfile
 import zipfile
-import shutil
 from datetime import datetime
 
 from dotenv import load_dotenv
@@ -39,6 +38,10 @@ import requests
 
 # Load environment variables
 load_dotenv()
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_USERNAME = os.getenv("BOT_USERNAME")
+ADMIN_ID = int(os.getenv("ADMIN_ID"))
+TINYURL_API_KEY = os.getenv("TINYURL_API_KEY")
 
 # Configure logging
 logging.basicConfig(
@@ -66,10 +69,10 @@ db = firebase.database()
 # Constants
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 ALLOWED_EXTENSIONS = ('.html', '.zip')
-BASE_USER_LIMIT = 10
-REFERRAL_BONUS = 3
-TINYURL_API_KEY = "PzJOqDQMIXuTGshO8VCpscW3jzqHsCKtsBQ16MYdKJfhcP7IbRNOEkqa3mME"
+BASE_UPLOAD_LIMIT = 10
+BONUS_PER_REFERRAL = 3
 
+# Helper function
 def shorten_url(long_url):
     try:
         response = requests.post(
@@ -83,43 +86,48 @@ def shorten_url(long_url):
         logger.warning(f"Shorten URL failed: {e}")
         return long_url
 
-def get_user_limit(user_id):
-    ref_data = db.child("referrals").child(user_id).get().val() or {}
-    referrals = ref_data.get("count", 0)
-    return BASE_USER_LIMIT + referrals * REFERRAL_BONUS
-
+# Handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
+    user_id = str(update.message.from_user.id)
     args = context.args
 
-    # Initialize referral count if new user
-    if not db.child("referrals").child(user_id).get().val():
-        db.child("referrals").child(user_id).set({"count": 0})
+    # Handle referral
+    if args:
+        referrer_id = args[0]
+        if referrer_id != user_id:
+            user_record = db.child("referrals").child(user_id).get().val()
+            if not user_record:
+                db.child("referrals").child(user_id).set({"referrer": referrer_id})
+                db.child("referral_counts").child(referrer_id).push(user_id)
 
-        # Referral processing
-        if args:
-            referrer = args[0]
-            if referrer != user_id:
-                ref_data = db.child("referrals").child(referrer).get().val() or {"count": 0}
-                ref_data["count"] = ref_data.get("count", 0) + 1
-                db.child("referrals").child(referrer).set(ref_data)
+    # Set initial limit if not present
+    if not db.child("limits").child(user_id).get().val():
+        db.child("limits").child(user_id).set(BASE_UPLOAD_LIMIT)
+
+    # Calculate limits
+    referral_data = db.child("referral_counts").child(user_id).get().val()
+    referral_count = len(referral_data) if referral_data else 0
+    upload_limit = BASE_UPLOAD_LIMIT + referral_count * BONUS_PER_REFERRAL
+    referral_link = f"https://t.me/{BOT_USERNAME}?start={user_id}"
 
     keyboard = [
         [InlineKeyboardButton("📤 Upload File", callback_data='upload')],
         [InlineKeyboardButton("📁 My Files", callback_data='files')],
         [InlineKeyboardButton("❌ Delete File", callback_data='delete')],
-        [InlineKeyboardButton("📈 Referral Stats", callback_data='ref_stats')],
+        [InlineKeyboardButton("📊 Referral Stats", callback_data='referral')],
         [
             InlineKeyboardButton("ℹ️ Help", callback_data='help'),
             InlineKeyboardButton("📬 Contact", url="https://t.me/ViperROX")
         ]
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+
     await update.message.reply_text(
-        "👋 Welcome to the HTML Hosting Bot!\n\n"
-        "Host static websites with instant public links. Supported formats: HTML/ZIP\n\n"
-        f"Invite others using this link:\n`/start {user_id}`",
-        reply_markup=reply_markup,
+        f"👋 Welcome to the HTML Hosting Bot!\n\n"
+        f"Host static websites with instant public links. Supported formats: HTML/ZIP\n\n"
+        f"💰 Free uploads: 10\n"
+        f"🎯 +3 slots per referral\n"
+        f"🔗 Your referral link:\n`{referral_link}`",
+        reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='Markdown'
     )
 
@@ -135,9 +143,13 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ File size exceeds 5MB limit.")
         return
 
-    user_data = db.child("users").child(user_id).get().val() or []
-    if len(user_data) >= get_user_limit(user_id):
-        await update.message.reply_text("⚠️ Storage limit reached. Delete some files or refer others to get more slots.")
+    files = db.child("users").child(user_id).get().val() or []
+    referrals = db.child("referral_counts").child(user_id).get().val()
+    referral_count = len(referrals) if referrals else 0
+    upload_limit = BASE_UPLOAD_LIMIT + referral_count * BONUS_PER_REFERRAL
+
+    if len(files) >= upload_limit:
+        await update.message.reply_text("⚠️ Upload limit reached. Invite others to gain more slots.")
         return
 
     try:
@@ -163,16 +175,15 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         url = storage.child(firebase_path).get_url(None)
         short_url = shorten_url(url)
 
-        file_record = {
+        files.append({
             "name": file_name,
             "path": firebase_path,
             "url": short_url,
             "timestamp": timestamp,
             "size": file.file_size
-        }
+        })
 
-        user_data.append(file_record)
-        db.child("users").child(user_id).set(user_data)
+        db.child("users").child(user_id).set(files)
 
         await update.message.reply_text(
             f"✅ *Upload Successful!*\n\n"
@@ -184,13 +195,11 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     except Exception as e:
-        logger.error(f"Upload failed for {user_id}: {str(e)}")
-        await update.message.reply_text(f"❌ Upload failed: {str(e)}")
+        logger.error(f"Upload failed: {e}")
+        await update.message.reply_text(f"❌ Upload failed: {e}")
     finally:
         if 'file_path' in locals() and os.path.exists(file_path):
             os.remove(file_path)
-        if 'extract_path' in locals() and os.path.exists(extract_path):
-            shutil.rmtree(extract_path)
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -202,9 +211,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if data == 'upload':
             await query.edit_message_text(
                 "📤 Please send an HTML/ZIP file (max 5MB)",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔙 Back", callback_data='start')]
-                ])
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data='start')]])
             )
 
         elif data == 'files':
@@ -215,13 +222,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             file_list = "\n".join(
                 [f"• [{f['name']}]({f['url']}) ({f['size']//1024}KB)" for f in files]
             )
+            referrals = db.child("referral_counts").child(user_id).get().val()
+            upload_limit = BASE_UPLOAD_LIMIT + (len(referrals) if referrals else 0) * BONUS_PER_REFERRAL
             await query.edit_message_text(
-                f"📂 *Your Files ({len(files)}/{get_user_limit(user_id)}):*\n{file_list}",
+                f"📂 *Your Files ({len(files)}/{upload_limit}):*\n{file_list}",
                 parse_mode='Markdown',
                 disable_web_page_preview=True,
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔙 Back", callback_data='start')]
-                ])
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data='start')]])
             )
 
         elif data == 'delete':
@@ -234,10 +241,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 for i, f in enumerate(files)
             ]
             buttons.append([InlineKeyboardButton("🔙 Back", callback_data='start')])
-            await query.edit_message_text(
-                "Select file to delete:",
-                reply_markup=InlineKeyboardMarkup(buttons)
-            )
+            await query.edit_message_text("Select file to delete:", reply_markup=InlineKeyboardMarkup(buttons))
 
         elif data.startswith("delete_"):
             index = int(data.split("_")[1])
@@ -250,46 +254,43 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await query.edit_message_text("⚠️ Invalid selection")
 
-        elif data == 'ref_stats':
-            ref_data = db.child("referrals").child(user_id).get().val() or {"count": 0}
-            referral_count = ref_data.get("count", 0)
-            limit = get_user_limit(user_id)
-            await query.edit_message_text(
-                f"📈 *Your Referral Stats:*\n\n"
-                f"👥 Referrals: `{referral_count}`\n"
-                f"💾 Upload Limit: `{limit}` files",
-                parse_mode='Markdown',
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔙 Back", callback_data='start')]
-                ])
-            )
-
         elif data == 'help':
             help_text = (
                 "ℹ️ *Bot Guide*\n\n"
                 "1. Upload HTML/ZIP files\n"
-                "2. Share generated short links\n"
-                "3. Refer users to get more upload slots\n\n"
-                "⚠️ ZIP files must contain `index.html`"
+                "2. Share short links\n"
+                "3. Delete files anytime\n"
+                "4. Earn +3 slots per referral"
             )
             await query.edit_message_text(
                 help_text,
                 parse_mode='Markdown',
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔙 Back", callback_data='start')]
-                ])
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data='start')]])
+            )
+
+        elif data == 'referral':
+            referral_data = db.child("referral_counts").child(user_id).get().val()
+            referral_count = len(referral_data) if referral_data else 0
+            upload_limit = BASE_UPLOAD_LIMIT + referral_count * BONUS_PER_REFERRAL
+            referral_link = f"https://t.me/{BOT_USERNAME}?start={user_id}"
+            await query.edit_message_text(
+                f"📊 *Referral Stats:*\n\n"
+                f"👥 Referred users: {referral_count}\n"
+                f"📦 Upload limit: {upload_limit}\n\n"
+                f"🔗 Your link:\n`{referral_link}`",
+                parse_mode='Markdown',
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data='start')]])
             )
 
         elif data == 'start':
             await start(update, context)
 
     except Exception as e:
-        logger.error(f"Button handler error: {str(e)}")
+        logger.error(f"Button handler error: {e}")
         await query.edit_message_text("⚠️ An error occurred. Please try again.")
 
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    admin_id = int(os.getenv("ADMIN_ID"))
-    if update.message.from_user.id != admin_id:
+    if update.message.from_user.id != ADMIN_ID:
         await update.message.reply_text("❌ You're not authorized to use this command.")
         return
 
@@ -317,7 +318,7 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Main
 if __name__ == '__main__':
-    app = ApplicationBuilder().token(os.getenv("BOT_TOKEN")).build()
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("broadcast", broadcast))
