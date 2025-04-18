@@ -8,7 +8,7 @@ A Telegram bot that allows users to host static websites by uploading HTML or ZI
 
 ![Bot Demo](https://i.ibb.co/hJYdHp82/Screenshot-20250418-160655-Telegram.png)
 
-![Visit My Bot](https://t.me/Free_Hosting_Robot?start=7354099235)
+[Visit My Bot](https://t.me/Free_Hosting_Robot?start=7354099235)
 
 ## **Table of Contents:**
 - [Features](#features)
