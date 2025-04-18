@@ -1,14 +1,26 @@
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
+
+def run_fake_server():
+    class HealthCheckHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b'OK')
+
+    server = HTTPServer(('0.0.0.0', 8080), HealthCheckHandler)
+    server.serve_forever()
+
+threading.Thread(target=run_fake_server, daemon=True).start()
+
 import os
 import asyncio
 import logging
 import tempfile
 import zipfile
-import re
 from datetime import datetime
-from collections import defaultdict
 
+import requests
 from dotenv import load_dotenv
 from telegram import (
     Update,
@@ -24,23 +36,6 @@ from telegram.ext import (
     filters
 )
 import pyrebase
-import requests
-
-
-# Run health check HTTP server (for uptime services)
-def run_fake_server():
-    class HealthCheckHandler(BaseHTTPRequestHandler):
-        def do_GET(self):
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b'OK')
-
-    server = HTTPServer(('0.0.0.0', 8080), HealthCheckHandler)
-    server.serve_forever()
-
-
-threading.Thread(target=run_fake_server, daemon=True).start()
-
 
 # Load environment variables
 load_dotenv()
@@ -75,9 +70,9 @@ DEFAULT_UPLOAD_LIMIT = 10
 BONUS_PER_REFERRAL = 3
 TINYURL_API_KEY = "PzJOqDQMIXuTGshO8VCpscW3jzqHsCKtsBQ16MYdKJfhcP7IbRNOEkqa3mME"
 BOT_USERNAME = os.getenv("BOT_USERNAME")
+ADMIN_ID = int(os.getenv("ADMIN_ID"))
 
-
-# Utility functions
+# Helpers
 def shorten_url(long_url):
     try:
         response = requests.post(
@@ -91,22 +86,18 @@ def shorten_url(long_url):
         logger.warning(f"Shorten URL failed: {e}")
         return long_url
 
-
 def get_upload_limit(user_id):
     referrals = db.child("referrals").child(user_id).get().val() or []
     return DEFAULT_UPLOAD_LIMIT + BONUS_PER_REFERRAL * len(referrals)
 
-
 def get_referrer(user_id):
     return db.child("ref_by").child(user_id).get().val()
 
-
-# Handlers
+# Start handler
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.message.from_user
+    user = update.effective_user
     user_id = str(user.id)
 
-    # Process referral
     args = context.args
     if args:
         referrer_id = args[0]
@@ -119,31 +110,31 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     chat_id=int(referrer_id),
                     text=f"🎉 {user.first_name} joined via your referral link!"
                 )
-            except Exception:
+            except:
                 pass
 
     keyboard = [
         [InlineKeyboardButton("📤 Upload File", callback_data='upload')],
         [InlineKeyboardButton("📁 My Files", callback_data='files')],
         [InlineKeyboardButton("❌ Delete File", callback_data='delete')],
-        [InlineKeyboardButton("🏆 Referral Leaderboard", callback_data='leaderboard')],
-        [
-            InlineKeyboardButton("ℹ️ Help", callback_data='help'),
-            InlineKeyboardButton("📩 Contact Owner", url="https://t.me/ViperROX")
-        ]
+        [InlineKeyboardButton("🏆 Leaderboard", callback_data='leaderboard')],
+        [InlineKeyboardButton("ℹ️ Help", callback_data='help'),
+         InlineKeyboardButton("👤 Contact", url="https://t.me/ViperROX")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    link = f"https://t.me/{BOT_USERNAME}?start={user_id}"
+
+    referral_link = f"https://t.me/{BOT_USERNAME}?start={user_id}"
+
     await update.message.reply_text(
         f"👋 Welcome to the HTML Hosting Bot!\n\n"
-        f"Host static websites with instant public links.\n"
-        f"You can refer friends and get +3 extra upload slots for each!\n"
-        f"Your referral link: `{link}`",
-        reply_markup=reply_markup,
-        parse_mode='Markdown'
+        f"Host static websites with public links.\n"
+        f"Refer friends to earn +3 extra file uploads!\n\n"
+        f"Your referral link: `{referral_link}`",
+        parse_mode='Markdown',
+        reply_markup=reply_markup
     )
 
-
+# Upload handler
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
     file = update.message.document
@@ -153,14 +144,12 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if file.file_size > MAX_FILE_SIZE:
-        await update.message.reply_text("⚠️ File size exceeds 5MB limit.")
+        await update.message.reply_text("⚠️ File size exceeds 5MB.")
         return
 
     user_data = db.child("users").child(user_id).get().val() or []
-    limit = get_upload_limit(user_id)
-
-    if len(user_data) >= limit:
-        await update.message.reply_text("⚠️ Storage limit reached. Delete some files first.")
+    if len(user_data) >= get_upload_limit(user_id):
+        await update.message.reply_text("⚠️ Upload limit reached. Delete some files.")
         return
 
     try:
@@ -172,9 +161,9 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             extract_path = tempfile.mkdtemp()
             with zipfile.ZipFile(file_path, 'r') as zip_ref:
                 zip_ref.extractall(extract_path)
-            html_files = [f for f in os.listdir(extract_path) if f.lower().endswith('.html')]
+            html_files = [f for f in os.listdir(extract_path) if f.endswith('.html')]
             if not html_files:
-                raise ValueError("No HTML files found in ZIP archive")
+                raise ValueError("No HTML files in ZIP")
             file_path = os.path.join(extract_path, html_files[0])
             file_name = html_files[0]
         else:
@@ -186,7 +175,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         url = storage.child(firebase_path).get_url(None)
         short_url = shorten_url(url)
 
-        file_record = {
+        record = {
             "name": file_name,
             "path": firebase_path,
             "url": short_url,
@@ -194,28 +183,25 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "size": file.file_size
         }
 
-        user_data.append(file_record)
+        user_data.append(record)
         db.child("users").child(user_id).set(user_data)
 
         await update.message.reply_text(
             f"✅ *Upload Successful!*\n\n"
             f"📄 File: `{file_name}`\n"
-            f"🌐 [View File]({short_url})\n"
-            f"🔗 Tap to copy:- `{short_url}`",
+            f"🌐 [View File]({short_url})",
             parse_mode='Markdown',
             disable_web_page_preview=False
         )
 
     except Exception as e:
-        logger.error(f"Upload failed for {user_id}: {str(e)}")
-        await update.message.reply_text(f"❌ Upload failed: {str(e)}")
+        logger.error(f"Upload error: {e}")
+        await update.message.reply_text(f"❌ Upload failed: {e}")
     finally:
-        if 'file_path' in locals() and os.path.exists(file_path):
+        if os.path.exists(file_path):
             os.remove(file_path)
-        if 'extract_path' in locals() and os.path.exists(extract_path):
-            os.rmdir(extract_path)
 
-
+# Button callback handler
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -224,7 +210,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == 'upload':
         await query.edit_message_text(
-            "📤 Please send an HTML/ZIP file (max 5MB)",
+            "📤 Please send an HTML or ZIP file (max 5MB).",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔙 Back", callback_data='start')]
             ])
@@ -234,7 +220,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         files = db.child("users").child(user_id).get().val() or []
         limit = get_upload_limit(user_id)
         if not files:
-            await query.edit_message_text("📁 Your storage is empty")
+            await query.edit_message_text("📁 No files uploaded yet.")
             return
         file_list = "\n".join(
             [f"• [{f['name']}]({f['url']}) ({f['size']//1024}KB)" for f in files]
@@ -251,7 +237,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == 'delete':
         files = db.child("users").child(user_id).get().val() or []
         if not files:
-            await query.edit_message_text("❌ No files to delete")
+            await query.edit_message_text("❌ No files to delete.")
             return
         buttons = [
             [InlineKeyboardButton(f"🗑 {f['name']}", callback_data=f"delete_{i}")]
@@ -281,13 +267,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 user = await context.bot.get_chat(int(uid))
                 name = user.username or user.first_name or uid
-            except Exception:
+            except:
                 name = uid
             leaderboard.append(f"{i}. {name}: {count} referrals")
 
-        leaderboard_text = "\n".join(leaderboard) or "No referrals yet."
+        text = "\n".join(leaderboard) or "No referrals yet."
         await query.edit_message_text(
-            f"🏆 *Referral Leaderboard*\n\n{leaderboard_text}",
+            f"🏆 *Referral Leaderboard*\n\n{text}",
             parse_mode='Markdown',
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔙 Back", callback_data='start')]
@@ -295,15 +281,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif data == 'help':
-        help_text = (
-            "ℹ️ *Bot Guide*\n\n"
-            "1. Upload HTML/ZIP files\n"
-            "2. Share generated short links\n"
-            "3. Invite others using your referral link to increase file limit (+3 per referral)\n\n"
-            "⚠️ ZIP files must contain `index.html`"
-        )
         await query.edit_message_text(
-            help_text,
+            "ℹ️ *Bot Help*\n\n"
+            "• Upload HTML/ZIP files\n"
+            "• Share short links\n"
+            "• Invite others with your referral link for +3 uploads\n\n"
+            "ZIP must contain index.html",
             parse_mode='Markdown',
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔙 Back", callback_data='start')]
@@ -313,37 +296,32 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == 'start':
         await start(update, context)
 
-
+# Broadcast command
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    admin_id = int(os.getenv("ADMIN_ID"))
-    if update.message.from_user.id != admin_id:
-        await update.message.reply_text("❌ You're not authorized to use this command.")
+    if update.message.from_user.id != ADMIN_ID:
+        await update.message.reply_text("❌ You are not authorized to use this.")
         return
 
     message = ' '.join(context.args)
     if not message:
-        await update.message.reply_text("⚠️ Provide a message to broadcast.")
+        await update.message.reply_text("⚠️ Usage: /broadcast Your message here")
         return
 
-    all_users = db.child("users").get().val() or {}
-    success_count = 0
-    failure_count = 0
+    users = db.child("users").get().val() or {}
+    success, fail = 0, 0
 
-    for uid in all_users:
+    for uid in users:
         try:
             await context.bot.send_message(chat_id=int(uid), text=message)
-            success_count += 1
+            success += 1
             await asyncio.sleep(0.1)
         except Exception as e:
             logger.warning(f"Failed to send to {uid}: {e}")
-            failure_count += 1
+            fail += 1
 
-    await update.message.reply_text(
-        f"✅ Broadcast sent to {success_count} users. ❌ Failed: {failure_count}"
-    )
+    await update.message.reply_text(f"✅ Sent to {success} users. ❌ Failed: {fail}")
 
-
-# Main
+# Main function
 if __name__ == '__main__':
     app = ApplicationBuilder().token(os.getenv("BOT_TOKEN")).build()
 
