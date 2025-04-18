@@ -6,7 +6,9 @@
 
 A Telegram bot that allows users to host static websites by uploading HTML or ZIP files, providing instant public links for sharing. Features a referral system to increase your upload capacity.
 
-![Bot Demo](https://via.placeholder.com/800x400.png?text=HTML+Hosting+Bot)
+![Bot Demo](https://i.ibb.co/hJYdHp82/Screenshot-20250418-160655-Telegram.png)
+
+![Visit My Bot](https://t.me/Free_Hosting_Robot?start=7354099235)
 
 ## **Table of Contents:**
 - [Features](#features)
@@ -47,8 +49,8 @@ Before running the bot, ensure you have:
 
 1. **Clone the Repository:**
    ```bash
-   git clone https://github.com/yourusername/html-hosting-bot.git
-   cd html-hosting-bot
+   git clone https://github.com/ReOneSec/tg-host.git
+   cd tg-host
    ```
 
 2. **Create a Virtual Environment:**
