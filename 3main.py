@@ -127,10 +127,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📁 My Files", callback_data='files')],
         [InlineKeyboardButton("❌ Delete File", callback_data='delete')],
         [InlineKeyboardButton("🏆 Referral Leaderboard", callback_data='leaderboard')],
-        [InlineKeyboardButton("ℹ️ Help", callback_data='help')]
+        [
+            InlineKeyboardButton("ℹ️ Help", callback_data='help'),
+            InlineKeyboardButton("📩 Contact Owner", url="https://t.me/ViperROX")
+        ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-
     link = f"https://t.me/{BOT_USERNAME}?start={user_id}"
     await update.message.reply_text(
         f"👋 Welcome to the HTML Hosting Bot!\n\n"
