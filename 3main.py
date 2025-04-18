@@ -98,13 +98,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = str(user.id)
 
-    args = context.args
+    # Process referral
+    args = context.args if hasattr(context, "args") else []
     if args:
         referrer_id = args[0]
         if referrer_id != user_id and not get_referrer(user_id):
             db.child("ref_by").child(user_id).set(referrer_id)
             db.child("referrals").child(referrer_id).push(user_id)
-
             try:
                 await context.bot.send_message(
                     chat_id=int(referrer_id),
@@ -119,20 +119,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("❌ Delete File", callback_data='delete')],
         [InlineKeyboardButton("🏆 Leaderboard", callback_data='leaderboard')],
         [InlineKeyboardButton("ℹ️ Help", callback_data='help'),
-         InlineKeyboardButton("👤 Contact", url="https://t.me/ViperROX")]
+         InlineKeyboardButton("👤 Contact Owner", url="https://t.me/ViperROX")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    referral_link = f"https://t.me/{BOT_USERNAME}?start={user_id}"
-
+    link = f"https://t.me/{BOT_USERNAME}?start={user_id}"
+    
     message = update.message or update.callback_query.message
-await message.reply_text(
+    await message.reply_text(
         f"👋 Welcome to the HTML Hosting Bot!\n\n"
-        f"Host static websites with public links.\n"
-        f"Refer friends to earn +3 extra file uploads!\n\n"
-        f"Your referral link: `{referral_link}`",
-        parse_mode='Markdown',
-        reply_markup=reply_markup
+        f"Host static websites with instant public links.\n"
+        f"You can refer friends and get +3 extra upload slots for each!\n"
+        f"Your referral link: `{link}`",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
     )
 
 # Upload handler
