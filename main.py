@@ -146,8 +146,8 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
     f"✅ *Upload Successful!*\n\n"
     f"📄 File: `{file_name}`\n"
-    f"🔗 [View File]({short_url})\n"
-    f"`{short_url}`",
+    f"🌐 [View File]({short_url})\n"
+    f"🔗 Tap to copy:- `{short_url}`",
     parse_mode='Markdown',
     disable_web_page_preview=False
         )
