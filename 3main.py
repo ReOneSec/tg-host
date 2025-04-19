@@ -3,16 +3,13 @@ import asyncio
 import logging
 import tempfile
 import zipfile
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from datetime import datetime
 
 import requests
 from dotenv import load_dotenv
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    InputFile
-)
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -57,6 +54,19 @@ TINYURL_API_KEY = os.getenv("TINYURL_API_KEY")
 BOT_USERNAME = os.getenv("BOT_USERNAME")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
 
+# Health check server
+def run_health_check_server():
+    class HealthCheckHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b'OK')
+
+    server = HTTPServer(('0.0.0.0', 8080), HealthCheckHandler)
+    server.serve_forever()
+
+threading.Thread(target=run_health_check_server, daemon=True).start()
+
 # Helper: shorten URLs using TinyURL
 def shorten_url(long_url):
     try:
@@ -74,16 +84,9 @@ def shorten_url(long_url):
 # Helper: get user upload limit
 def get_upload_limit(user_id):
     referrals = db.child("referrals").child(user_id).get().val() or []
-    return DEFAULT_UPLOAD_LIMIT + BONUS_PER_REFERRAL * len(referrals)
+    custom_bonus = db.child("custom_slots").child(user_id).get().val() or 0
+    return DEFAULT_UPLOAD_LIMIT + BONUS_PER_REFERRAL * len(referrals) + int(custom_bonus)
 
-import os
-import asyncio
-import logging
-import tempfile
-import zipfile
-import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
-from datetime import datetime
 
 import requests from dotenv import load_dotenv from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile from telegram.ext import (ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters) import pyrebase
 
