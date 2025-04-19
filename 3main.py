@@ -1,6 +1,3 @@
-# HTML Hosting Telegram Bot Implementation
-
-```python
 import os
 import asyncio
 import logging
