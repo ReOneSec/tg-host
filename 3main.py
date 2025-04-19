@@ -76,49 +76,89 @@ def get_upload_limit(user_id):
     referrals = db.child("referrals").child(user_id).get().val() or []
     return DEFAULT_UPLOAD_LIMIT + BONUS_PER_REFERRAL * len(referrals)
 
-# Start command
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    user_id = str(user.id)
-    args = context.args if hasattr(context, "args") else []
+import os import asyncio import logging import tempfile import zipfile import threading from http.server import BaseHTTPRequestHandler, HTTPServer from datetime import datetime
 
-    # Process referral
-    if args:
-        referrer_id = args[0]
-        if referrer_id != user_id and not db.child("ref_by").child(user_id).get().val():
-            db.child("ref_by").child(user_id).set(referrer_id)
-            db.child("referrals").child(referrer_id).push(user_id)
-            try:
-                await context.bot.send_message(
-                    chat_id=int(referrer_id),
-                    text=f"🎉 {user.first_name} joined using your referral link!"
-                )
-            except Exception:
-                pass
+import requests from dotenv import load_dotenv from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile from telegram.ext import (ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters) import pyrebase
 
-    reply_markup = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📤 Upload File", callback_data="upload")],
-        [
-            InlineKeyboardButton("👤 Profile", callback_data="profile"),
-            InlineKeyboardButton("❌ Delete File", callback_data="delete")
-        ],
-        [InlineKeyboardButton("🏆 Leaderboard", callback_data="leaderboard")],
-        [
-            InlineKeyboardButton("ℹ️ Help", callback_data="help"),
-            InlineKeyboardButton("👤 Contact", url="https://t.me/ViperROX")
-        ]
-    ])
+#Load environment variables
 
-    referral_link = f"https://t.me/{BOT_USERNAME}?start={user_id}"
-    message = update.message or update.callback_query.message
-    await message.reply_text(
-        f"👋 Welcome to the HTML Hosting Bot!\n\n"
-        f"Host static websites easily and share public links.\n"
-        f"Refer friends and get +3 upload slots per referral.\n\n"
-        f"🔗 Your referral link: `{referral_link}`",
-        reply_markup=reply_markup,
-        parse_mode="Markdown"
-    )
+load_dotenv()
+
+#Configure logging
+
+logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO) logger = logging.getLogger(name)
+
+Firebase configuration
+
+firebase_config = { "apiKey": os.getenv("FIREBASE_API_KEY"), "authDomain": os.getenv("FIREBASE_AUTH_DOMAIN"), "projectId": os.getenv("FIREBASE_PROJECT_ID"), "storageBucket": os.getenv("FIREBASE_STORAGE_BUCKET"), "messagingSenderId": os.getenv("FIREBASE_MESSAGING_SENDER_ID"), "appId": os.getenv("FIREBASE_APP_ID"), "measurementId": os.getenv("FIREBASE_MEASUREMENT_ID"), "databaseURL": os.getenv("FIREBASE_DATABASE_URL") }
+
+firebase = pyrebase.initialize_app(firebase_config) storage = firebase.storage() db = firebase.database()
+
+#Constants
+
+MAX_FILE_SIZE = 5 * 1024 * 1024 ALLOWED_EXTENSIONS = ('.html', '.zip') DEFAULT_UPLOAD_LIMIT = 10 BONUS_PER_REFERRAL = 3 TINYURL_API_KEY = os.getenv("TINYURL_API_KEY") BOT_USERNAME = os.getenv("BOT_USERNAME") ADMIN_ID = int(os.getenv("ADMIN_ID"))
+
+#Health check server
+
+def run_health_check_server(): class HealthCheckHandler(BaseHTTPRequestHandler): def do_GET(self): self.send_response(200) self.end_headers() self.wfile.write(b'OK') server = HTTPServer(('0.0.0.0', 8080), HealthCheckHandler) server.serve_forever()
+
+threading.Thread(target=run_health_check_server, daemon=True).start()
+
+#Helper functions
+
+def shorten_url(long_url): try: response = requests.post( 'https://api.tinyurl.com/create', headers={'Authorization': f'Bearer {TINYURL_API_KEY}'}, json={"url": long_url} ) response.raise_for_status() return response.json().get('data', {}).get('tiny_url', long_url) except Exception as e: logger.warning(f"URL Shortening Failed: {e}") return long_url
+
+def get_upload_limit(user_id): referrals = db.child("referrals").child(user_id).get().val() or [] custom_bonus = db.child("custom_slots").child(user_id).get().val() or 0 return DEFAULT_UPLOAD_LIMIT + BONUS_PER_REFERRAL * len(referrals) + int(custom_bonus)
+
+#Start command
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE): user = update.effective_user user_id = str(user.id) args = context.args if hasattr(context, "args") else []
+
+if args:
+    referrer_id = args[0]
+    if referrer_id != user_id and not db.child("ref_by").child(user_id).get().val():
+        db.child("ref_by").child(user_id).set(referrer_id)
+        db.child("referrals").child(referrer_id).push(user_id)
+        try:
+            await context.bot.send_message(chat_id=int(referrer_id), text=f"🎉 {user.first_name} joined using your referral link!")
+        except Exception:
+            pass
+
+referral_link = f"https://t.me/{BOT_USERNAME}?start={user_id}"
+reply_markup = InlineKeyboardMarkup([
+    [InlineKeyboardButton("📤 Upload File", callback_data="upload")],
+    [InlineKeyboardButton("👤 Profile", callback_data="profile"), InlineKeyboardButton("❌ Delete File", callback_data="delete")],
+    [InlineKeyboardButton("🏆 Leaderboard", callback_data="leaderboard")],
+    [InlineKeyboardButton("ℹ️ Help", callback_data="help"), InlineKeyboardButton("👤 Contact", url="https://t.me/ViperROX")]
+])
+
+message = update.message or update.callback_query.message
+await message.reply_text(
+    f"👋 Welcome to the HTML Hosting Bot!\n\n"
+    f"Host static websites easily and share public links.\n"
+    f"Refer friends and get +3 upload slots per referral.\n\n"
+    f"🔗 Your referral link: `{referral_link}`",
+    reply_markup=reply_markup,
+    parse_mode="Markdown"
+)
+
+#Command to add extra slots manually
+
+async def add_slots(update: Update, context: ContextTypes.DEFAULT_TYPE): if update.message.from_user.id != ADMIN_ID: await update.message.reply_text("❌ You are not authorized to use this.") return
+
+if len(context.args) != 2:
+    await update.message.reply_text("⚠️ Usage: /addslots <user_id> <slots>")
+    return
+
+user_id, slots = context.args
+try:
+    slots = int(slots)
+    db.child("custom_slots").child(user_id).set(slots)
+    await update.message.reply_text(f"✅ User {user_id} now has +{slots} extra upload slots.")
+except Exception as e:
+    logger.error(f"Failed to add slots: {e}")
+    await update.message.reply_text("❌ Failed to add slots.")
+
 
 # Upload Handler
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -329,3 +369,4 @@ if __name__ == '__main__':
     app.add_handler(CallbackQueryHandler(button_handler))
     logger.info("Bot started successfully.")
     app.run_polling()
+        
