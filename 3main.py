@@ -88,8 +88,6 @@ def get_upload_limit(user_id):
     return DEFAULT_UPLOAD_LIMIT + BONUS_PER_REFERRAL * len(referrals) + int(custom_bonus)
 
 
-import requests from dotenv import load_dotenv from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile from telegram.ext import (ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters) import pyrebase
-
 #Load environment variables
 
 load_dotenv()
