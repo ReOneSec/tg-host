@@ -1,20 +1,3 @@
-# health_check_server.py (optional to extract later)
-import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
-
-def run_health_check_server():
-    class HealthCheckHandler(BaseHTTPRequestHandler):
-        def do_GET(self):
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b'OK')
-    server = HTTPServer(('0.0.0.0', 8080), HealthCheckHandler)
-    server.serve_forever()
-
-threading.Thread(target=run_health_check_server, daemon=True).start()
-
-
-# telegram_bot.py
 import os
 import asyncio
 import logging
@@ -115,11 +98,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     reply_markup = InlineKeyboardMarkup([
         [InlineKeyboardButton("📤 Upload File", callback_data="upload")],
-        [InlineKeyboardButton("📁 My Files", callback_data="files")],
-        [InlineKeyboardButton("❌ Delete File", callback_data="delete")],
+        [
+            InlineKeyboardButton("👤 Profile", callback_data="profile"),
+            InlineKeyboardButton("❌ Delete File", callback_data="delete")
+        ],
         [InlineKeyboardButton("🏆 Leaderboard", callback_data="leaderboard")],
-        [InlineKeyboardButton("ℹ️ Help", callback_data="help")],
-        [InlineKeyboardButton("👤 Contact", url="https://t.me/ViperROX")]
+        [
+            InlineKeyboardButton("ℹ️ Help", callback_data="help"),
+            InlineKeyboardButton("👤 Contact", url="https://t.me/ViperROX")
+        ]
     ])
 
     referral_link = f"https://t.me/{BOT_USERNAME}?start={user_id}"
@@ -206,7 +193,8 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    user_id = str(query.from_user.id)
+    user = query.from_user
+    user_id = str(user.id)
     data = query.data
 
     if data == "upload":
@@ -215,17 +203,24 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="start")]])
         )
 
-    elif data == "files":
+    elif data == "profile":
         files = db.child("users").child(user_id).get().val() or []
-        limit = get_upload_limit(user_id)
-        if not files:
-            await query.edit_message_text("📁 No files uploaded yet.")
-            return
-        file_list = "\n".join([
-            f"• [{f['name']}]({f['url']}) ({f['size']//1024}KB)" for f in files
-        ])
+        referrals = db.child("referrals").child(user_id).get().val() or []
+        referral_link = f"https://t.me/{BOT_USERNAME}?start={user_id}"
+        file_lines = "\n".join(
+            f"• [{f['name']}]({f['url']}) - [⬇️ Download]({f['url']})" for f in files
+        ) or "No files uploaded."
+        text = (
+            f"*👤 Profile Info:*\n"
+            f"Name: {user.first_name}\n"
+            f"Username: @{user.username if user.username else 'N/A'}\n"
+            f"User ID: `{user_id}`\n"
+            f"Referrals: {len(referrals)}\n"
+            f"Referral Link: `{referral_link}`\n\n"
+            f"*📂 Your Files:*\n{file_lines}"
+        )
         await query.edit_message_text(
-            f"📂 *Your Files ({len(files)}/{limit}):*\n{file_list}",
+            text,
             parse_mode="Markdown",
             disable_web_page_preview=True,
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="start")]])
@@ -236,9 +231,27 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not files:
             await query.edit_message_text("❌ No files to delete.")
             return
-        buttons = [[InlineKeyboardButton(f"🗑 {f['name']}", callback_data=f"delete_{i}")] for i, f in enumerate(files)]
+        buttons = [[InlineKeyboardButton(f"🗑 {f['name']}", callback_data=f"confirm_delete_{i}")] for i, f in enumerate(files)]
         buttons.append([InlineKeyboardButton("🔙 Back", callback_data="start")])
         await query.edit_message_text("Select a file to delete:", reply_markup=InlineKeyboardMarkup(buttons))
+
+    elif data.startswith("confirm_delete_"):
+        index = int(data.split("_")[2])
+        files = db.child("users").child(user_id).get().val() or []
+        if 0 <= index < len(files):
+            file_name = files[index]["name"]
+            await query.edit_message_text(
+                f"⚠️ Are you sure you want to delete `{file_name}`?",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup([
+                    [
+                        InlineKeyboardButton("✅ Yes", callback_data=f"delete_{index}"),
+                        InlineKeyboardButton("❌ Cancel", callback_data="start")
+                    ]
+                ])
+            )
+        else:
+            await query.edit_message_text("⚠️ Invalid selection.")
 
     elif data.startswith("delete_"):
         index = int(data.split("_")[1])
@@ -260,8 +273,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = ""
         for i, (uid, count) in enumerate(leaderboard[:10], 1):
             try:
-                user = await context.bot.get_chat(int(uid))
-                name = user.username or user.first_name or str(uid)
+                chat = await context.bot.get_chat(int(uid))
+                name = chat.username or chat.first_name or str(uid)
             except:
                 name = str(uid)
             text += f"{i}. {name}: {count} referrals\n"
