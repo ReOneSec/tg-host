@@ -609,8 +609,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Need help? Contact @ViperROX",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(keyboard)
-)
-elif query.data == "upload":
+        )
+
+    elif query.data == "upload":
         keyboard = [[InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]]
         await query.edit_message_text(
             "📤 Please send a .html or .zip file now.",
