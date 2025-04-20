@@ -21,6 +21,7 @@ from telegram.ext import (
     filters
 )
 import pyrebase
+from telegram.error import BadRequest
 
 # Record bot start time for uptime calculation
 BOT_START_TIME = datetime.now()
@@ -370,21 +371,46 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     user = query.from_user
     user_id = str(user.id)
-
+    
+    # Get message information
+    chat_id = query.message.chat_id
+    message_id = query.message.message_id
+    has_photo = bool(query.message.photo)
+    
     # Update user's last active timestamp
     user_data = db.child("all_users").child(user_id).get().val() or {}
     user_data["last_active"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     db.child("all_users").child(user_id).update(user_data)
 
     if query.data == "back_to_menu":
-        await start(update, context)
+        # Check if message has photo
+        if has_photo:
+            try:
+                # For photo messages, delete and send a new message
+                await query.message.delete()
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"👋 Welcome to the HTML Hosting Bot!\n\n"
+                         f"Host static websites easily and share public links.\n"
+                         f"Refer friends and get +3 upload slots per referral.\n\n"
+                         f"🔗 Your referral link: `{f'https://t.me/{BOT_USERNAME}?start={user_id}'}`",
+                    reply_markup=get_main_menu_markup(),
+                    parse_mode="Markdown"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to handle back_to_menu with photo: {e}")
+                # Fallback to start function
+                await start(update, context)
+        else:
+            # For text messages, use the start function
+            await start(update, context)
         return
 
     if query.data == "profile":
         user_files = db.child("users").child(user_id).get().val() or []
         if isinstance(user_files, dict):
             user_files = list(user_files.values())
-
+            
         limit = get_upload_limit(user_id)
         usage = len(user_files)
         referral_link = f"https://t.me/{BOT_USERNAME}?start={user_id}"
@@ -399,66 +425,156 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🎯 Referrals: {len(referrals)}\n"
             f"🔗 Referral Link: `{referral_link}`"
         )
-
+        
         keyboard = [
             [InlineKeyboardButton("📂 View My Files", callback_data="view_files")],
             [InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]
         ]
-
+        
+        # Try to get user profile photo
         try:
             user_profile_photos = await context.bot.get_user_profile_photos(user.id, limit=1)
             if user_profile_photos.photos:
-                # User has a profile photo, send it with the profile info
+                # User has a profile photo
                 photo = user_profile_photos.photos[0][-1]
                 photo_file = await photo.get_file()
-
-                # Send photo with caption and delete original message
-                await query.edit_message_media(
-                    media=InputMediaPhoto(media=photo_file.file_id, caption=msg, parse_mode="Markdown"),
+                
+                if has_photo:
+                    # If current message is already a photo, try to edit it
+                    try:
+                        await context.bot.edit_message_media(
+                            chat_id=chat_id,
+                            message_id=message_id,
+                            media=InputMediaPhoto(
+                                media=photo_file.file_id,
+                                caption=msg,
+                                parse_mode="Markdown"
+                            ),
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                        return
+                    except Exception as e:
+                        logger.warning(f"Failed to edit message media: {e}")
+                
+                # If editing fails or message doesn't have photo, send new message
+                try:
+                    await query.message.delete()
+                except Exception as e:
+                    logger.warning(f"Failed to delete message: {e}")
+                    
+                await context.bot.send_photo(
+                    chat_id=chat_id,
+                    photo=photo_file.file_id,
+                    caption=msg,
+                    parse_mode="Markdown",
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-                return # Exit function after successfully editing media
-
+                return
         except Exception as e:
             logger.warning(f"Failed to get user profile photo: {e}")
-
-        # If no photo or error, edit text message
-        try:
-            await query.edit_message_text(
-                msg,
+        
+        # If no photo or error, try to edit text or send new message
+        if has_photo:
+            # If message has photo but we couldn't get user's photo, send a new text message
+            try:
+                await query.message.delete()
+            except Exception as e:
+                logger.warning(f"Failed to delete message: {e}")
+                
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=msg,
                 parse_mode="Markdown",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
-        except telegram.error.BadRequest as e:
-            logger.warning(f"Edit message failed in profile: {e}")
-
+        else:
+            # Try to edit existing text message
+            try:
+                await query.edit_message_text(
+                    msg, 
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except BadRequest as e:
+                logger.warning(f"Failed to edit message text: {e}")
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=msg,
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+    
     elif query.data == "view_files":
         user_files = db.child("users").child(user_id).get().val() or []
         if isinstance(user_files, dict):
             user_files = list(user_files.values())
-
+            
         if not user_files:
             keyboard = [[InlineKeyboardButton("🔙 Back to Profile", callback_data="profile")]]
-            await query.edit_message_text(
-                "⚠️ You haven't uploaded any files yet.",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
+            
+            if has_photo:
+                # If message has photo, we need to send a new message
+                try:
+                    await query.message.delete()
+                except Exception as e:
+                    logger.warning(f"Failed to delete message: {e}")
+                    
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="⚠️ You haven't uploaded any files yet.",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            else:
+                try:
+                    await query.edit_message_text(
+                        "⚠️ You haven't uploaded any files yet.", 
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                except BadRequest as e:
+                    logger.warning(f"Failed to edit message text: {e}")
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text="⚠️ You haven't uploaded any files yet.",
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             return
-
+        
         keyboard = []
         for i, file in enumerate(user_files):
             keyboard.append([
                 InlineKeyboardButton(f"📄 {file['name']}", callback_data=f"file_info:{i}")
             ])
-
+        
         keyboard.append([InlineKeyboardButton("🔙 Back to Profile", callback_data="profile")])
-
-        try:
-            await query.edit_message_text(
-                "📂 *Your Uploaded Files*\nSelect a file to view details:",
+        
+        if has_photo:
+            # If message has photo, we need to send a new message
+            try:
+                await query.message.delete()
+            except Exception as e:
+                logger.warning(f"Failed to delete message: {e}")
+                
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="📂 *Your Uploaded Files*\nSelect a file to view details:",
                 parse_mode="Markdown",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
+        else:
+            try:
+                await query.edit_message_text(
+                    "📂 *Your Uploaded Files*\nSelect a file to view details:", 
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except BadRequest as e:
+                logger.warning(f"Failed to edit message text: {e}")
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="📂 *Your Uploaded Files*\nSelect a file to view details:",
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
         except telegram.error.BadRequest as e:
             logger.warning(f"Edit message failed in view_files: {e}")
 
