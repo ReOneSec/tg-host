@@ -544,12 +544,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data.startswith("del:"):
         index = int(query.data.split(":")[1])
         user_files = db.child("users").child(user_id).get().val() or []
- if isinstance(user_files, dict):
+        if isinstance(user_files, dict):
             user_files = list(user_files.values())
         
         if index >= len(user_files):
             await query.edit_message_text(
-                "⚠️ Invalid file selection.", 
+                "⚠️ Invalid file selection.",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]])
             )
             return
