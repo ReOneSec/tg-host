@@ -5,12 +5,13 @@ import tempfile
 import zipfile
 import threading
 import shutil
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import requests
 from dotenv import load_dotenv
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -21,12 +22,15 @@ from telegram.ext import (
 )
 import pyrebase
 
+# Record bot start time for uptime calculation
+BOT_START_TIME = datetime.now()
+
 # Load environment variables
 load_dotenv()
 
 # Configure logging
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
-logger = logging.getLogger(__name__)  # Fixed: proper logger initialization
+logger = logging.getLogger(__name__)
 
 # Firebase configuration
 firebase_config = {
@@ -71,6 +75,25 @@ def format_timestamp(timestamp):
     except Exception:
         return timestamp
 
+def format_uptime():
+    """Format the bot uptime in a human-readable way"""
+    uptime = datetime.now() - BOT_START_TIME
+    days = uptime.days
+    hours, remainder = divmod(uptime.seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    
+    parts = []
+    if days > 0:
+        parts.append(f"{days} days")
+    if hours > 0:
+        parts.append(f"{hours} hours")
+    if minutes > 0:
+        parts.append(f"{minutes} minutes")
+    if seconds > 0 or not parts:
+        parts.append(f"{seconds} seconds")
+        
+    return ", ".join(parts)
+
 # Health check server
 def run_health_check_server():
     class HealthCheckHandler(BaseHTTPRequestHandler):
@@ -113,14 +136,47 @@ def get_main_menu_markup():
          InlineKeyboardButton("❌ Delete File", callback_data="delete")],
         [InlineKeyboardButton("🏆 Leaderboard", callback_data="leaderboard")],
         [InlineKeyboardButton("ℹ️ Help", callback_data="help"), 
-         InlineKeyboardButton("👤 Contact", url="https://t.me/ViperROX")]
+         InlineKeyboardButton("📊 Stats", callback_data="stats")]
     ])
+
+# Helper: count total files in the system
+def count_total_files():
+    users = db.child("users").get().val() or {}
+    total = 0
+    for user_id, files in users.items():
+        if isinstance(files, list):
+            total += len(files)
+        elif isinstance(files, dict):
+            total += len(files.values())
+    return total
+
+# Helper: count total users
+def count_total_users():
+    users = db.child("users").get().val() or {}
+    return len(users)
+
+# Helper: get user files count
+def get_user_files_count(user_id):
+    user_files = db.child("users").child(user_id).get().val() or []
+    if isinstance(user_files, dict):
+        return len(user_files)
+    elif isinstance(user_files, list):
+        return len(user_files)
+    return 0
 
 # Start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = str(user.id)
     args = context.args if hasattr(context, "args") else []
+
+    # Track user in database for stats
+    db.child("all_users").child(user_id).set({
+        "username": user.username,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "last_active": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    })
 
     if args:
         referrer_id = args[0]
@@ -177,11 +233,60 @@ async def add_slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Failed to add slots: {e}")
         await update.message.reply_text("❌ Failed to add slots.")
 
+# Admin command
+async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.from_user.id != ADMIN_ID:
+        await update.message.reply_text("❌ You are not authorized to use this.")
+        return
+    
+    all_users = db.child("all_users").get().val() or {}
+    
+    msg = "👥 *User List*\n\n"
+    for user_id, user_data in all_users.items():
+        username = user_data.get("username", "No username")
+        name = f"{user_data.get('first_name', '')} {user_data.get('last_name', '')}".strip()
+        files_count = get_user_files_count(user_id)
+        
+        msg += f"*ID:* `{user_id}`\n"
+        msg += f"*Name:* {name}\n"
+        msg += f"*Username:* @{username}\n"
+        msg += f"*Files:* {files_count}\n"
+        msg += f"*Last Active:* {user_data.get('last_active', 'Unknown')}\n\n"
+        
+        # Telegram has a 4096 character limit for messages
+        if len(msg) > 3800:
+            await update.message.reply_text(msg, parse_mode="Markdown")
+            msg = "*User List (Continued)*\n\n"
+    
+    if msg:
+        await update.message.reply_text(msg, parse_mode="Markdown")
+
+# Stats command
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    total_users = count_total_users()
+    total_files = count_total_files()
+    uptime = format_uptime()
+    
+    msg = (
+        "📊 *Bot Statistics*\n\n"
+        f"👥 *Total Users:* {total_users}\n"
+        f"📁 *Total Files:* {total_files}\n"
+        f"⏱ *Uptime:* {uptime}\n"
+        f"🔄 *Started:* {BOT_START_TIME.strftime('%Y-%m-%d %H:%M:%S')}"
+    )
+    
+    await update.message.reply_text(msg, parse_mode="Markdown")
+
 # Handle file upload
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
     user_id = str(user.id)
     file = update.message.document
+
+    # Update user's last active timestamp
+    user_data = db.child("all_users").child(user_id).get().val() or {}
+    user_data["last_active"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    db.child("all_users").child(user_id).update(user_data)
 
     if not file.file_name.lower().endswith(ALLOWED_EXTENSIONS):
         await update.message.reply_text("⚠️ Only .html or .zip files are supported.")
@@ -257,7 +362,13 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    user_id = str(query.from_user.id)
+    user = query.from_user
+    user_id = str(user.id)
+    
+    # Update user's last active timestamp
+    user_data = db.child("all_users").child(user_id).get().val() or {}
+    user_data["last_active"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    db.child("all_users").child(user_id).update(user_data)
 
     if query.data == "back_to_menu":
         await start(update, context)
@@ -275,6 +386,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if isinstance(referrals, dict):
             referrals = list(referrals.values())
 
+        # Create profile message
         msg = (
             f"👤 *Your Profile*\n\n"
             f"📦 Uploads: {usage}/{limit}\n"
@@ -287,6 +399,28 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]
         ]
         
+        # Try to get user profile photo
+        try:
+            user_profile_photos = await context.bot.get_user_profile_photos(user.id, limit=1)
+            if user_profile_photos.photos:
+                # User has a profile photo, send it with the profile info
+                photo = user_profile_photos.photos[0][-1]
+                photo_file = await photo.get_file()
+                
+                # Edit message with photo and text
+                await query.message.delete()
+                await context.bot.send_photo(
+                    chat_id=query.message.chat_id,
+                    photo=photo_file.file_id,
+                    caption=msg,
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+                return
+        except Exception as e:
+            logger.warning(f"Failed to get user profile photo: {e}")
+        
+        # If no photo or error, just send text
         await query.edit_message_text(
             msg, 
             parse_mode="Markdown",
@@ -410,7 +544,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data.startswith("del:"):
         index = int(query.data.split(":")[1])
         user_files = db.child("users").child(user_id).get().val() or []
-        if isinstance(user_files, dict):
+ if isinstance(user_files, dict):
             user_files = list(user_files.values())
         
         if index >= len(user_files):
@@ -437,7 +571,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif query.data == "leaderboard":
         referrals = db.child("referrals").get().val() or {}
-        
         # Handle different data structures
         top_users = []
         for uid, refs in referrals.items():
@@ -470,15 +603,37 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "2. ZIP must include at least one .html file.\n"
             "3. You get 10 upload slots by default.\n"
             "4. Earn +3 slots per referral.\n\n"
+            "Commands:\n"
+            "/start - Start the bot\n"
+            "/stats - View bot statistics\n\n"
             "Need help? Contact @ViperROX",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-
-    elif query.data == "upload":
+)
+elif query.data == "upload":
         keyboard = [[InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]]
         await query.edit_message_text(
             "📤 Please send a .html or .zip file now.",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    
+    elif query.data == "stats":
+        total_users = count_total_users()
+        total_files = count_total_files()
+        uptime = format_uptime()
+        
+        msg = (
+            "📊 *Bot Statistics*\n\n"
+            f"👥 *Total Users:* {total_users}\n"
+            f"📁 *Total Files:* {total_files}\n"
+            f"⏱ *Uptime:* {uptime}\n"
+            f"🔄 *Started:* {BOT_START_TIME.strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+        
+        keyboard = [[InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]]
+        await query.edit_message_text(
+            msg, 
+            parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         
@@ -486,9 +641,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             "⚠️ Unknown action.",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]])
-        )
-
-# Broadcast command (admin only)
+)
+        # Broadcast command (admin only)
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.from_user.id != ADMIN_ID:
         await update.message.reply_text("❌ You are not authorized to use this.")
@@ -499,13 +653,11 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Usage: /broadcast <message>")
         return
 
-    users = db.child("users").get().val() or {}
+    users = db.child("all_users").get().val() or {}
     success, failed = 0, 0
     
     # Get unique user IDs
-    user_ids = set()
-    for uid in users:
-        user_ids.add(uid)
+    user_ids = set(users.keys())
     
     for uid in user_ids:
         try:
@@ -517,15 +669,15 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await asyncio.sleep(0.05)  # Add small delay to avoid rate limiting
     
     await update.message.reply_text(f"✅ Sent: {success}, ❌ Failed: {failed}")
-
-# Start the bot
+    # Start the bot
 if __name__ == '__main__':
     app = ApplicationBuilder().token(os.getenv("BOT_TOKEN")).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("broadcast", broadcast))
     app.add_handler(CommandHandler("addslots", add_slots))
+    app.add_handler(CommandHandler("admin", admin_command))
+    app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
     app.add_handler(CallbackQueryHandler(button_handler))
     logger.info("Bot started successfully.")
     app.run_polling()
-            
